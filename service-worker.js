@@ -1,4 +1,24 @@
-const CACHE_NAME = 'portfolio-cache-v1';
+const CACHE_NAME = 'portfolio-cache-v2';
+
+// Get the base path from the service worker's own URL
+const getBasePath = () => {
+  const swUrl = new URL(self.location.href);
+  const pathSegments = swUrl.pathname.split('/');
+  // Remove 'service-worker.js' from the end
+  pathSegments.pop();
+  return pathSegments.join('/') + '/';
+};
+
+const basePath = getBasePath();
+
+// Function to normalize URLs with base path
+const normalizeUrl = (url) => {
+  if (url.startsWith('http') || url.startsWith('/')) {
+    return url;
+  }
+  return basePath + url;
+};
+
 const urlsToCache = [
   'favicon-1.ico?v=2',
   'gt/01/map.png',
@@ -154,7 +174,25 @@ const urlsToCache = [
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(urlsToCache);
+      // Normalize all URLs before caching
+      const normalizedUrls = urlsToCache.map(url => normalizeUrl(url));
+      return cache.addAll(normalizedUrls);
+    })
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys().then((cacheNames) => {
+      return Promise.all(
+        cacheNames.map((cacheName) => {
+          // Delete old caches that don't match the current CACHE_NAME
+          if (cacheName !== CACHE_NAME) {
+            console.log('Deleting old cache:', cacheName);
+            return caches.delete(cacheName);
+          }
+        })
+      );
     })
   );
 });
@@ -164,7 +202,17 @@ self.addEventListener('fetch', (event) => {
       if (response) {
         return response;
       }
-      return fetch(event.request);
+      
+      // Try to match with normalized URL if direct match fails
+      const url = new URL(event.request.url);
+      const normalizedUrl = normalizeUrl(url.pathname.substring(basePath.length));
+      
+      return caches.match(normalizedUrl).then((normalizedResponse) => {
+        if (normalizedResponse) {
+          return normalizedResponse;
+        }
+        return fetch(event.request);
+      });
     })
   );
 });
